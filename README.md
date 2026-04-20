@@ -33,18 +33,18 @@ This project demonstrates production-level agentic AI architecture:
    │  • Tavily Search   │   │  • FMP MCP Server      │
    │  • Firecrawl MCP   │   │    (balance sheets,    │
    │    (web scraping)  │   │     ratios, prices)    │
-   └─────────┬──────────┘   └───────────┬────────────┘
+   └─────────┬──────────┘   └────────────┬───────────┘
              │                           │
              └─────────────┬─────────────┘
                            │             FAN-IN (waits for both)
                            ▼
-              ┌────────────────────────┐
-              │     Analyst Agent      │
-              │     (Claude Sonnet 4)  │
-              │                        │
+              ┌─────────────────────────┐
+              │     Analyst Agent       │
+              │     (Claude Sonnet 4)   │
+              │                         │
               │  Synthesizes all data   │
               │  into investment memo   │
-              └────────────┬───────────┘
+              └────────────┬────────────┘
                            │
                            ▼
               ┌────────────────────────┐
@@ -66,10 +66,10 @@ This project demonstrates production-level agentic AI architecture:
          verdict: pass             verdict: fail
               │                         │
               ▼                         ▼
-           ┌─────┐          ┌───────────────────┐
+           ┌─────┐          ┌────────────────────┐
            │ END │          │ Back to Researcher │
            └─────┘          │ (with feedback)    │
-                            └───────────────────┘
+                            └────────────────────┘
                                 max 3 cycles
 ```
 
