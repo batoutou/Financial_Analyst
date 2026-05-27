@@ -10,22 +10,24 @@ from tools.retry import retry_tool_call
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are a senior financial research analyst. Your job is to gather
-comprehensive news and qualitative information about a given company.
+SYSTEM_PROMPT = """You are a senior financial research analyst. Gather comprehensive news and
+qualitative information about a given asset.
 
 Instructions:
-1. Search for recent news, earnings announcements, analyst opinions, and market sentiment
-   about the company using the search tools available.
-2. If a web scraping tool is available, use it to extract detailed content from relevant
-   financial report URLs (SEC filings, earnings transcripts, analyst reports).
-3. Return your findings as a structured JSON array where each item has:
+1. Search for recent news, earnings announcements, analyst opinions, and market sentiment.
+2. Adapt your focus to the asset type:
+   - stock: earnings results, revenue growth, analyst upgrades/downgrades, insider activity, catalysts
+   - etf: underlying theme performance, fund flows, sector rotation signals
+   - bond: interest rate environment, Fed policy signals, yield curve positioning
+   - crypto: exchange flows (buy/sell pressure), on-chain metrics, regulatory news, whale activity
+3. If a web scraping tool is available, extract detailed content from relevant URLs.
+4. Return your findings as a structured JSON array where each item has:
    - "title": article/report title
    - "source": source name or URL
    - "date": publication date if available
    - "summary": 2-3 sentence summary of key points
    - "sentiment": "positive", "negative", or "neutral"
 
-Focus on information that would be material to an investment decision.
 Return ONLY the JSON array, no other text."""
 
 
@@ -41,12 +43,15 @@ def create_researcher_node(tools: list[BaseTool]):
     tools_by_name = {t.name: t for t in tools}
 
     async def researcher_node(state: FinancialAnalystState) -> dict:
-        company = state["company_name"]
         revision_feedback = state.get("revision_feedback", "")
         memory_context = state.get("memory_context", "")
         collected_errors: list[dict] = []
 
-        user_msg = f"Research the company: {company}"
+        candidate = state.get("candidate", {})
+        asset_type = candidate.get("asset_type", "stock")
+        ticker = candidate.get("ticker", state.get("company_name", ""))
+        name = candidate.get("name", ticker)
+        user_msg = f"Research {asset_type}: {name} (ticker: {ticker})"
         if revision_feedback:
             user_msg += f"\n\nThe analyst requested additional research:\n{revision_feedback}"
         if memory_context:
@@ -84,7 +89,7 @@ def create_researcher_node(tools: list[BaseTool]):
 
             return {
                 "news_articles": articles,
-                "messages": [HumanMessage(content=f"[Researcher] Found {len(articles)} articles about {company}.")],
+                "messages": [HumanMessage(content=f"[Researcher] Found {len(articles)} articles about {name}.")],
                 "errors": collected_errors,
             }
 
