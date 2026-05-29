@@ -5,7 +5,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool
 
-from graph.state import FinancialAnalystState
+from graph.state import InvestmentState
 from tools.retry import retry_tool_call
 
 logger = logging.getLogger(__name__)
@@ -70,7 +70,7 @@ def create_quantitative_node(tools: list[BaseTool]):
     llm_with_tools = llm.bind_tools(tools)
     tools_by_name = {t.name: t for t in tools}
 
-    async def quantitative_node(state: FinancialAnalystState) -> dict:
+    async def quantitative_node(state: InvestmentState) -> dict:
         candidate = state.get("candidate", {})
         ticker = candidate.get("ticker", state.get("company_name", ""))
         name = candidate.get("name", ticker)

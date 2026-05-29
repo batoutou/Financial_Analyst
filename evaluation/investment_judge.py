@@ -57,6 +57,13 @@ def _validate_portfolio(portfolio: list[dict], market_regime: dict) -> list[str]
             f"Portfolio has only {len(asset_types)} asset type(s); need at least 3 for diversification"
         )
 
+    # Guard against stock overconcentration (proxy for sector concentration — max 3 stocks)
+    stock_count = sum(1 for p in non_cash if p.get("asset_type") == "stock")
+    if stock_count > 3:
+        issues.append(
+            f"Portfolio has {stock_count} stock positions; limit to 3 to avoid sector concentration"
+        )
+
     total = sum(p.get("allocation_pct", 0) for p in portfolio)
     if abs(total - 100.0) > 1.0:
         issues.append(f"Allocations sum to {total:.1f}%, expected 100%")
