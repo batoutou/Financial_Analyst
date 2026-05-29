@@ -1,71 +1,61 @@
 import logging
-from typing import Literal
 
 from langchain_core.tools import BaseTool
 from langgraph.graph import END, START, StateGraph
-from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import Send
 
-from agents.analyst import analyst_node
-from agents.quantitative import create_quantitative_node
-from agents.researcher import create_researcher_node
-from evaluation.judge import evaluator_node
-from graph.state import FinancialAnalystState
+from agents.asset_analyst import create_asset_analyst_node
+from agents.macro_scanner import create_macro_scanner_node
+from agents.portfolio_constructor import portfolio_constructor_node
+from agents.universe_scanner import create_universe_scanner_node
+from evaluation.investment_judge import create_investment_judge_node
+from graph.state import InvestmentState
 
 logger = logging.getLogger(__name__)
 
 
-def route_after_evaluation(state: FinancialAnalystState) -> Literal["researcher", "__end__"]:
-    """Route after the evaluator: revise or finish.
+def build_graph(researcher_tools: list[BaseTool], quantitative_tools: list[BaseTool]):
+    graph = StateGraph(InvestmentState)
 
-    The evaluator (Gemini) sets needs_revision based on its verdict.
-    We also enforce the revision cap to prevent infinite loops.
-    """
-    if state.get("needs_revision") and state.get("revision_count", 0) < state.get("max_revisions", 3):
-        logger.info(
-            "Evaluator requested revision %d/%d",
-            state["revision_count"],
-            state["max_revisions"],
-        )
-        return "researcher"
-    return END
+    graph.add_node("macro_scanner", create_macro_scanner_node(researcher_tools))
+    graph.add_node("universe_scanner", create_universe_scanner_node(researcher_tools))
+    graph.add_node("analyze_candidate", create_asset_analyst_node(researcher_tools, quantitative_tools))
+    graph.add_node("portfolio_constructor", portfolio_constructor_node)
+    graph.add_node("investment_judge", create_investment_judge_node())
 
+    graph.add_edge(START, "macro_scanner")
+    graph.add_edge("macro_scanner", "universe_scanner")
 
-def build_graph(
-    researcher_tools: list[BaseTool],
-    quantitative_tools: list[BaseTool],
-) -> CompiledStateGraph:
-    """Build the financial analyst multi-agent graph.
+    def dispatch_candidates(state: InvestmentState):
+        candidates = state.get("candidates", [])
+        revision_count = state.get("revision_count", 0)
+        # Use only candidates from the current revision round
+        current = [c for c in candidates if c.get("revision", 0) == revision_count]
+        if not current:
+            # No candidates this round — skip directly to portfolio constructor
+            return [Send("portfolio_constructor", state)]
+        return [
+            Send("analyze_candidate", {
+                "candidate": candidate,
+                "market_regime": state.get("market_regime", {}),
+                "budget": state["budget"],
+                "revision_count": revision_count,
+                "opportunities": [],
+                "errors": [],
+                "messages": [],
+            })
+            for candidate in current
+        ]
 
-    Architecture:
-        START ──┬──> researcher ──┐
-                └──> quantitative ─┤
-                                   └──> analyst ──> evaluator ──[condition]──> END
-                                                       │
-                                                       └─── revise ──> researcher
-    """
-    researcher = create_researcher_node(researcher_tools)
-    quantitative = create_quantitative_node(quantitative_tools)
+    graph.add_conditional_edges("universe_scanner", dispatch_candidates, ["analyze_candidate", "portfolio_constructor"])
+    graph.add_edge("analyze_candidate", "portfolio_constructor")
+    graph.add_edge("portfolio_constructor", "investment_judge")
 
-    graph = StateGraph(FinancialAnalystState)
+    def route_after_judge(state: InvestmentState) -> str:
+        if state.get("needs_revision") and state.get("revision_count", 0) < state.get("max_revisions", 2):
+            return "universe_scanner"
+        return END
 
-    # Add nodes
-    graph.add_node("researcher", researcher)
-    graph.add_node("quantitative", quantitative)
-    graph.add_node("analyst", analyst_node)
-    graph.add_node("evaluator", evaluator_node)
-
-    # Parallel fan-out: START -> researcher + quantitative
-    graph.add_edge(START, "researcher")
-    graph.add_edge(START, "quantitative")
-
-    # Fan-in: both feed into analyst (LangGraph waits for both automatically)
-    graph.add_edge("researcher", "analyst")
-    graph.add_edge("quantitative", "analyst")
-
-    # Analyst produces report, then evaluator judges it
-    graph.add_edge("analyst", "evaluator")
-
-    # Evaluator decides: pass -> END, fail/needs_improvement -> researcher
-    graph.add_conditional_edges("evaluator", route_after_evaluation)
+    graph.add_conditional_edges("investment_judge", route_after_judge, ["universe_scanner", END])
 
     return graph.compile()
