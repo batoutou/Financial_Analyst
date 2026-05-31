@@ -13,6 +13,13 @@
       "env": {
         "FMP_API_KEY": "${FMP_API_KEY}"
       }
+    },
+    "alphavantage": {
+      "command": "npx",
+      "args": ["-y", "@mcpdotdirect/mcp-server-alpha-vantage"],
+      "env": {
+        "ALPHA_VANTAGE_API_KEY": "${ALPHA_VANTAGE_API_KEY}"
+      }
     }
   }
 }

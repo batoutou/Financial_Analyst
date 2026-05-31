@@ -1,36 +1,32 @@
 import operator
-from typing import Annotated, TypedDict
+from typing import Annotated
 
-from langgraph.graph import add_messages
-from langchain_core.messages import BaseMessage
+from typing_extensions import TypedDict
 
 
-class FinancialAnalystState(TypedDict):
-    """Shared state for the financial analyst multi-agent workflow."""
+class InvestmentState(TypedDict):
+    # Input
+    budget: float
 
-    company_name: str
+    # Phase 1: MacroScanner output
+    market_regime: dict  # {vix, yield_curve_spread, spx_above_200ma, risk_level, summary}
 
-    # Agent communication via LangGraph message reducer
-    messages: Annotated[list[BaseMessage], add_messages]
+    # Phase 2: UniverseScanner output — accumulates across revision rounds, tagged with revision number
+    candidates: Annotated[list[dict], operator.add]
 
-    # Accumulated data from specialized agents (append-only)
-    financial_data: Annotated[list[dict], operator.add]
-    news_articles: Annotated[list[dict], operator.add]
+    # Phase 3: AssetAnalyst fan-out results — accumulates across revision rounds
+    opportunities: Annotated[list[dict], operator.add]
 
-    # Analyst output
-    analysis_report: str
+    # Phase 4: PortfolioConstructor output
+    portfolio: list[dict]
 
-    # Revision loop control
+    # Eval / revision
+    evaluation: dict
     revision_count: int
     max_revisions: int
     needs_revision: bool
     revision_feedback: str
 
-    # Persistent memory: context from prior runs on the same company
-    memory_context: str
-
-    # LLM-as-judge evaluation results
-    evaluation: dict
-
-    # Structured error log (append-only across all agents)
+    # Infra
+    messages: Annotated[list, operator.add]
     errors: Annotated[list[dict], operator.add]

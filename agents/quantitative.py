@@ -5,27 +5,56 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool
 
-from graph.state import FinancialAnalystState
+from graph.state import InvestmentState
 from tools.retry import retry_tool_call
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are a quantitative financial analyst. Your job is to extract
-hard financial data about a given company using the financial data tools available.
+SYSTEM_PROMPT = """You are a quantitative financial analyst. Extract hard financial data for a given asset.
 
-Instructions:
-1. Retrieve the company's latest financial statements: income statement, balance sheet,
-   and cash flow statement.
-2. Extract key financial ratios and metrics: P/E ratio, EV/EBITDA, debt-to-equity,
-   current ratio, ROE, revenue growth, profit margins.
-3. Get recent stock price data if available.
+Instructions vary by asset type:
+
+For stocks and ETFs:
+1. Get analyst price targets from multiple brokers: use the price-target endpoint for the ticker.
+   For each analyst entry, extract: broker name, analyst name, rating, target price, date, price on date.
+2. Get key financial ratios: P/E, EV/EBITDA, P/B, ROE, debt-to-equity, revenue growth, gross margin.
+3. Get current stock quote (latest price).
+4. Get RSI (14-period daily) to assess momentum.
+
+For crypto:
+1. Get current price and 30-day price change.
+2. Get RSI if available.
+
+For bonds:
+1. Get current yield and duration from the ETF data.
+2. Get recent price and 52-week range.
 
 Return your findings as a structured JSON array where each item has:
-- "metric": name of the metric or statement
-- "category": one of "income_statement", "balance_sheet", "cash_flow", "ratio", "market_data"
-- "value": the numeric value or data
-- "period": the time period (e.g., "FY2024", "Q4 2024", "TTM")
-- "unit": "USD", "percentage", "ratio", etc.
+{
+    "metric": "<name>",
+    "category": "<broker_consensus | income_statement | balance_sheet | ratio | market_data | technical>",
+    "value": <numeric value or nested object>,
+    "period": "<FY2024 | TTM | current | etc.>",
+    "unit": "<USD | percentage | ratio | count>"
+}
+
+For broker_consensus, use value as a nested object:
+{
+    "metric": "broker_consensus",
+    "category": "broker_consensus",
+    "value": {
+        "mean_target": <float>,
+        "buy_count": <int>,
+        "hold_count": <int>,
+        "sell_count": <int>,
+        "brokers": [
+            {"broker": str, "analyst": str, "rating": str, "target_price": float,
+             "rating_date": str, "price_on_rating_date": float, "implied_return_pct": float}
+        ]
+    },
+    "period": "current",
+    "unit": "USD"
+}
 
 Return ONLY the JSON array, no other text."""
 
@@ -41,13 +70,16 @@ def create_quantitative_node(tools: list[BaseTool]):
     llm_with_tools = llm.bind_tools(tools)
     tools_by_name = {t.name: t for t in tools}
 
-    async def quantitative_node(state: FinancialAnalystState) -> dict:
-        company = state["company_name"]
+    async def quantitative_node(state: InvestmentState) -> dict:
+        candidate = state.get("candidate", {})
+        ticker = candidate.get("ticker", state.get("company_name", ""))
+        name = candidate.get("name", ticker)
+        asset_type = candidate.get("asset_type", "stock")
         collected_errors: list[dict] = []
 
         messages = [
             SystemMessage(content=SYSTEM_PROMPT),
-            HumanMessage(content=f"Extract financial data for: {company}"),
+            HumanMessage(content=f"Extract financial data for {asset_type}: {name} (ticker: {ticker})"),
         ]
 
         try:
@@ -75,7 +107,7 @@ def create_quantitative_node(tools: list[BaseTool]):
 
             return {
                 "financial_data": financial_data,
-                "messages": [HumanMessage(content=f"[Quantitative] Extracted {len(financial_data)} data points for {company}.")],
+                "messages": [HumanMessage(content=f"[Quantitative] Extracted {len(financial_data)} data points for {name}.")],
                 "errors": collected_errors,
             }
 
